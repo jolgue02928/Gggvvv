@@ -2,45 +2,56 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 
-local localPlayer = Players.LocalPlayer
-local placeId = game.PlaceId
+local player = Players.LocalPlayer
+local placeId = 116495829188952 -- Dead Rails
 local currentJobId = game.JobId
+local triedServers = {} -- Para evitar servidores repetidos
 
--- Função para buscar um servidor diferente
-local function findDifferentServer()
-	local success, response = pcall(function()
-		return game:HttpGet("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100")
-	end)
+-- Marca o servidor atual como já visitado
+triedServers[currentJobId] = true
 
-	if not success then
-		warn("Erro ao obter servidores:", response)
-		return nil
-	end
+-- Função para encontrar um servidor diferente
+local function findNewServer()
+    local nextPageCursor = nil
 
-	local data = HttpService:JSONDecode(response)
+    repeat
+        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(placeId)
+        if nextPageCursor then
+            url = url .. "&cursor=" .. nextPageCursor
+        end
 
-	for _, server in pairs(data.data) do
-		if server.id ~= currentJobId and server.playing < server.maxPlayers then
-			return server.id
-		end
-	end
+        local success, response = pcall(function()
+            return game:HttpGet(url)
+        end)
 
-	return nil
+        if not success then
+            warn("Erro ao buscar servidores:", response)
+            return nil
+        end
+
+        local data = HttpService:JSONDecode(response)
+        nextPageCursor = data.nextPageCursor
+
+        for _, server in ipairs(data.data) do
+            if server.playing < server.maxPlayers and not triedServers[server.id] then
+                triedServers[server.id] = true
+                return server.id
+            end
+        end
+
+    until not nextPageCursor
+
+    return nil
 end
 
--- Função que faz a troca de servidor de 3 em 3 minutos
-local function loopTeleport()
-	while true do
-		wait(180) -- 3 minutos
-		local serverId = findDifferentServer()
-		if serverId then
-			TeleportService:TeleportToPlaceInstance(placeId, serverId, localPlayer)
-			break -- este break é opcional; em geral o Teleport desconecta o script
-		else
-			warn("Nenhum servidor disponível no momento.")
-		end
-	end
+-- Loop de troca de servidor
+while true do
+    wait(180) -- Espera 3 minutos
+    local newServerId = findNewServer()
+    if newServerId then
+        TeleportService:TeleportToPlaceInstance(placeId, newServerId, player)
+        break -- Jogador será teleportado; script para
+    else
+        warn("Nenhum servidor novo encontrado. Tentando novamente em 3 minutos.")
+    end
 end
-
--- Inicia o processo
-loopTeleport()
